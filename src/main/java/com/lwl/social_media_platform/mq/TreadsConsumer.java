@@ -30,11 +30,13 @@ import java.util.Map;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@RocketMQMessageListener(consumerGroup = "${rocketmq.consumer.group}", topic = "${rocketmq.producer.topic}")
+@RocketMQMessageListener(consumerGroup = "${rocketmq.consumer_insert.group}",
+        topic = "${rocketmq.producer.topic}",
+        selectorExpression = "${rocketmq.consumer_insert.selectorExpression}")
 public class TreadsConsumer implements RocketMQListener<Map<String, String>> {
     private final RestHighLevelClient restHighLevelClient;
     private final TagService tagService;
-    private  final UserService userService;
+    private final UserService userService;
 
     @Override
     public void onMessage(Map<String, String> treadsMap) {
@@ -45,6 +47,7 @@ public class TreadsConsumer implements RocketMQListener<Map<String, String>> {
         log.info("消费者获取tread为{}", treadsJSON);
         IndexRequest request = new IndexRequest("treads-vo").source(treadsVoJson, XContentType.JSON).id(idStr);
         try {
+            log.info("treadsMap为{}",treadsVoJson);
             IndexResponse indexResponse = restHighLevelClient.index(request, RequestOptions.DEFAULT);
             log.info("队列异步添加文档结果为:{}", indexResponse.getShardInfo().status().toString());
         } catch (IOException e) {
