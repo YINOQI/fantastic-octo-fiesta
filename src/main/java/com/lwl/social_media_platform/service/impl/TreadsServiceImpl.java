@@ -30,6 +30,7 @@ import org.elasticsearch.client.RestHighLevelClient;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
+import org.elasticsearch.search.sort.SortOrder;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -93,7 +94,7 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
             imageService.saveBatch(imageList);
         }
 
-        treadsProducer.sendMessage(JSONUtil.toJsonStr(treadsDTO));
+        treadsProducer.sendTreadMessage(JSONUtil.toJsonStr(treadsDTO));
 
         return Result.success("发布成功");
     }
@@ -146,7 +147,9 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
                 // 每页数量
                 .size(treadsPageQuery.getPageSize())
                 // 指定查询用户id字段
-                .query(QueryBuilders.matchQuery("userId", treadsPageQuery.getUserId().toString()));
+                .query(QueryBuilders.matchQuery("userId", treadsPageQuery.getUserId().toString()))
+                // 排序字段
+                .sort("createTime", SortOrder.DESC);
         SearchRequest searchRequest = new SearchRequest("treads-vo").source(searchSourceBuilder);
 
         // 聚合查询
@@ -219,7 +222,7 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
         Long treadsId = treadsDTO.getId();
 
         // 更新动态内容
-        this.lambdaUpdate().eq(Treads::getId, treadsId).update();
+        this.lambdaUpdate().eq(Treads::getId, treadsId).update(treadsDTO);
 
         // 删除该动态的标签
         treadsTagService.lambdaUpdate().eq(TreadsTag::getTreadsId, treadsId).remove();
@@ -233,7 +236,7 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
             // 保存新标签
             treadsTagService.saveBatch(treadsTagList);
         }
-
+        treadsProducer.sendTreadUpdateMessage(treadsDTO);
         return Result.success("更新成功");
     }
 
