@@ -50,6 +50,19 @@ public class TreadsProducer {
         }
     }
 
+    public void sendTreadsToFollowMessage(String treadsDtoJSON) {
+        String keys = UUID.randomUUID().toString();
+        Message<Map<String, String>> build = buildMessage(keys, treadsDtoJSON);
+        SendResult sendResult;
+        try {
+            sendResult = rocketMQTemplate.syncSend(topic + ":" + "push", build, 2000L);
+            log.info("动态发送结果：{}，消息ID：{}，消息Keys：{}", sendResult.getSendStatus(), sendResult.getMsgId(), keys);
+        } catch (Throwable ex) {
+            log.error("[消息访问统计监控] 消息发送失败", ex);
+        }
+    }
+
+
     private Message<Map<String, String>> buildMessage(String keys, String treadsDtoJSON) {
         Map<String, String> keyMap = new HashMap<>();
         keyMap.put("keys", keys);

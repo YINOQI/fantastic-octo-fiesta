@@ -37,3 +37,9 @@ rocketmq:
     consumer_update:
         group: treads_update_cg
         selectorExpression: update
+    consumer-treads-push:
+        group: tread_push_cg
+        selectorExpression: push
+
+scheduler:
+    support-update: 0 0/5 * * * ?

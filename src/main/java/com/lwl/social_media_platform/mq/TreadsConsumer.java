@@ -20,6 +20,7 @@ import org.elasticsearch.action.index.IndexResponse;
 import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.RestHighLevelClient;
 import org.elasticsearch.common.xcontent.XContentType;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -35,6 +36,7 @@ import java.util.Map;
         selectorExpression = "${rocketmq.consumer_insert.selectorExpression}")
 public class TreadsConsumer implements RocketMQListener<Map<String, String>> {
     private final RestHighLevelClient restHighLevelClient;
+    private final StringRedisTemplate stringRedisTemplate;
     private final TagService tagService;
     private final UserService userService;
 
@@ -44,10 +46,8 @@ public class TreadsConsumer implements RocketMQListener<Map<String, String>> {
         String treadsVoJson = setTreadsVoJSON(treadsJSON);
         Long id = (Long) JSONUtil.parseObj(treadsJSON).get("id");
         String idStr = id.toString();
-        log.info("消费者获取tread为{}", treadsJSON);
         IndexRequest request = new IndexRequest("treads-vo").source(treadsVoJson, XContentType.JSON).id(idStr);
         try {
-            log.info("treadsMap为{}",treadsVoJson);
             IndexResponse indexResponse = restHighLevelClient.index(request, RequestOptions.DEFAULT);
             log.info("队列异步添加文档结果为:{}", indexResponse.getShardInfo().status().toString());
         } catch (IOException e) {

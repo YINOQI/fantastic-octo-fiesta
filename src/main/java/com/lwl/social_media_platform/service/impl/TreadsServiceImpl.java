@@ -10,6 +10,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.lwl.social_media_platform.common.BaseContext;
 import com.lwl.social_media_platform.common.Result;
+import com.lwl.social_media_platform.common.exception.ServiceException;
 import com.lwl.social_media_platform.domain.dto.PageDTO;
 import com.lwl.social_media_platform.domain.dto.TreadsDTO;
 import com.lwl.social_media_platform.domain.pojo.*;
@@ -31,6 +32,8 @@ import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.sort.SortOrder;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,8 +43,9 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
-import static com.lwl.social_media_platform.utils.RedisConstant.TREADS_VO_KEY;
+import static com.lwl.social_media_platform.utils.RedisConstant.*;
 
 @Service
 @Slf4j
@@ -57,46 +61,58 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
     private final ESClientUtil esClientUtil;
     private final TreadsProducer treadsProducer;
     private final RestHighLevelClient restHighLevelClient;
+    private final RedissonClient redissonClient;
 
     @Override
     @Transactional
     public Result<String> publish(TreadsDTO treadsDTO) {
         Long userId = BaseContext.getCurrentId();
+        RLock lock = redissonClient.getLock(TREADS_ADD_KEY + userId.toString());
+        try {
+            boolean isLock = lock.tryLock(1, TimeUnit.SECONDS);
+            if (!isLock) {
+                throw new ServiceException("请勿多次点击");
+            }
+            treadsDTO.setContent(
+                    treadsDTO.getContent()
+                            .replace("\n", "<br/>")
+                            .replace("\r", "")
+            );
 
-        treadsDTO.setContent(
-                treadsDTO.getContent()
-                        .replace("\n", "<br/>")
-                        .replace("\r", "")
-        );
+            treadsDTO.setUserId(userId);
+            treadsDTO.setCreateTime(LocalDateTime.now());
+            treadsDTO.setSupportNum(0L);
 
-        treadsDTO.setUserId(userId);
+            // 保存动态
+            this.save(treadsDTO);
 
-        treadsDTO.setCreateTime(LocalDateTime.now());
+            Long treadsId = treadsDTO.getId();
 
-        // 保存动态
-        this.save(treadsDTO);
+            // 为 tag 设置动态id
+            List<TreadsTag> treadsTagList = treadsDTO.getTreadsTagList();
+            if (CollUtil.isNotEmpty(treadsTagList)) {
+                treadsTagList.forEach(item -> item.setTreadsId(treadsId));
+                // 保存标签
+                treadsTagService.saveBatch(treadsTagList);
+            }
 
-        Long treadsId = treadsDTO.getId();
+            // 为 图片列表 设置动态id
+            List<Image> imageList = treadsDTO.getImageList();
+            if (CollUtil.isNotEmpty(imageList)) {
+                imageList.forEach(item -> item.setTreadsId(treadsId));
+                // 保存图片
+                imageService.saveBatch(imageList);
+            }
 
-        // 为 tag 设置动态id
-        List<TreadsTag> treadsTagList = treadsDTO.getTreadsTagList();
-        if (CollUtil.isNotEmpty(treadsTagList)) {
-            treadsTagList.forEach(item -> item.setTreadsId(treadsId));
-            // 保存标签
-            treadsTagService.saveBatch(treadsTagList);
+            treadsProducer.sendTreadMessage(JSONUtil.toJsonStr(treadsDTO));
+            treadsProducer.sendTreadsToFollowMessage(JSONUtil.toJsonStr(treadsDTO));
+
+            return Result.success("发布成功");
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        } finally {
+            lock.unlock();
         }
-
-        // 为 图片列表 设置动态id
-        List<Image> imageList = treadsDTO.getImageList();
-        if (CollUtil.isNotEmpty(imageList)) {
-            imageList.forEach(item -> item.setTreadsId(treadsId));
-            // 保存图片
-            imageService.saveBatch(imageList);
-        }
-
-        treadsProducer.sendTreadMessage(JSONUtil.toJsonStr(treadsDTO));
-
-        return Result.success("发布成功");
     }
 
     @Override
@@ -117,28 +133,50 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
 
     @Override
     public Result<TreadsVo> getTread(Long id) {
+        Long userId = BaseContext.getCurrentId();
+
         Map<Object, Object> entries = stringRedisTemplate.opsForHash().entries(TREADS_VO_KEY + id);
         if (!entries.isEmpty()) {
+            if (entries.containsKey("nullTread")) {
+                return Result.error("该动态不存在");
+            }
             TreadsVo treadsVo = BeanUtils.fillBeanWithMap(entries, new TreadsVo(), false);
             return Result.success(treadsVo);
         }
 
-        Treads treads = this.getById(id);
-        TreadsVo treadsVo = getTreadsVo(treads);
+        RLock lock = redissonClient.getLock(TREADS_LOCK_KEY + userId);
+        boolean isLock = lock.tryLock();
 
-        Map<String, Object> stringObjectMap = BeanUtils.beanToMap(treadsVo, new HashMap<>(),
-                CopyOptions.create()
-                        .setIgnoreNullValue(true)
-                        .setFieldValueEditor((name, value) -> value.toString()));
+        if (!isLock) {
+            throw new ServiceException("请勿重复点击");
+        }
 
-        stringRedisTemplate.opsForHash().putAll(TREADS_VO_KEY + treadsVo.getId(), stringObjectMap);
+        try {
+            Treads treads = this.getById(id);
+            if (treads == null) {
+                stringRedisTemplate.opsForHash().put(TREADS_VO_KEY + id, "nullTread", "-");
+                stringRedisTemplate.expire(TREADS_VO_KEY + id, 3, TimeUnit.MINUTES);
+                return Result.error("该动态不存在");
+            }
 
-        return Result.success(treadsVo);// 调用 getTreadsVo 方法 返回 TreadsVo
+            TreadsVo treadsVo = getTreadsVo(treads);
+
+            Map<String, Object> stringObjectMap = BeanUtils.beanToMap(treadsVo, new HashMap<>(),
+                    CopyOptions.create()
+                            .setIgnoreNullValue(true)
+                            .setFieldValueEditor((name, value) -> value.toString()));
+
+            stringRedisTemplate.opsForHash().putAll(TREADS_VO_KEY + treadsVo.getId(), stringObjectMap);
+
+            return Result.success(treadsVo);// 调用 getTreadsVo 方法 返回 TreadsVo
+        } finally {
+            lock.unlock();
+        }
     }
 
     @Override
     public Result<PageDTO<TreadsVo>> getTreadByUserId(TreadsPageQuery treadsPageQuery) throws IOException {
-        Long userId = BaseContext.getCurrentId();
+        long userId = BaseContext.getCurrentId();
 
         // 构造查询条件
         SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder()
@@ -165,23 +203,31 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
             // 获取动态作者id
             long toUserId = treadsVo.getUserId();
             // 是否关注
-            boolean concentration = concentrationService.lambdaQuery()
-                    .eq(userId != null, Concentration::getUserId, userId)
-                    .eq(userId != null, Concentration::getToUserId, toUserId)
-                    .exists();
+            boolean concentration;
+            if (stringRedisTemplate.opsForZSet().score(FOLLOW_LIST_KEY + toUserId, userId) != null) {
+                concentration = true;
+            }else {
+                concentration = concentrationService.lambdaQuery()
+                        .eq(Concentration::getUserId, userId)
+                        .eq(Concentration::getToUserId, toUserId)
+                        .exists();
+            }
 
             // 动态id
-            Long id = treadsVo.getId();
+            Long treadsVoId = treadsVo.getId();
 
             LambdaQueryWrapper<Support> supportLambdaQueryWrapper = new LambdaQueryWrapper<>();
             // 获取点赞数
-            long supportNum = supportService.count(supportLambdaQueryWrapper.eq(Support::getTreadsId, id));
+            Long score = stringRedisTemplate.opsForZSet().size(SUPPORT_KEY + treadsVoId);
+            long supportNum;
+            supportNum = Objects.requireNonNullElseGet(score, () -> supportService.count(supportLambdaQueryWrapper.eq(Support::getTreadsId, treadsVoId)));
             // 是否点赞
-            boolean isSupport = supportService.exists(supportLambdaQueryWrapper.eq(Support::getTreadsId, id).eq(Support::getUserId, userId));
+            boolean isSupport = supportService.exists(supportLambdaQueryWrapper.eq(Support::getTreadsId, treadsVoId).eq(Support::getUserId, userId));
 
+            // 封装
             treadsVo.setIsFollow(concentration)
-                    .setSupportNum(supportNum)
-                    .setIsSupport(isSupport);
+                    .setIsSupport(isSupport)
+                    .setSupportNum(supportNum);
 
             treadsVoList.add(treadsVo);
         }
@@ -242,17 +288,34 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
 
 
     @Override
+    @Transactional
     public Result<String> support(Support support) {
-        supportService.save(support);
+        String key = support.getUserId().toString();
+
+        Double score = stringRedisTemplate.opsForZSet().score(SUPPORT_KEY + support.getTreadsId(), JSONUtil.toJsonStr(support));
+        if (score == null) {
+            stringRedisTemplate.opsForZSet().add(SUPPORT_KEY + support.getTreadsId(), JSONUtil.toJsonStr(support), System.currentTimeMillis());
+        } else {
+            throw new ServiceException("已经点过赞啦!");
+        }
+//        supportService.save(support);
+//        this.lambdaUpdate().setIncrBy(Treads::getSupportNum, 1);
         return Result.success("点赞成功");
     }
 
     @Override
+    @Transactional
     public Result<String> cancelSupport(Support support) {
+        String key = support.getUserId() + ":" + support.getTreadsId();
+        stringRedisTemplate.opsForHash().put(SUPPORT_KEY + support.getTreadsId(), key, JSONUtil.toJsonStr(support));
+        stringRedisTemplate.opsForZSet().incrementScore(SUPPORT_NUM_KEY, support.getTreadsId().toString(), -1);
+
         supportService.lambdaUpdate()
                 .eq(Support::getTreadsId, support.getTreadsId())
                 .eq(Support::getUserId, support.getUserId())
                 .remove();
+
+        this.lambdaUpdate().setDecrBy(Treads::getSupportNum, 1);
         return Result.success("取消点赞成功");
     }
 
@@ -278,7 +341,6 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
                 treadsVos.add(treadsVo);
             }
         });
-
         return treadsVos;
     }
 
@@ -330,10 +392,10 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
         treadsVo.setTagList(tags)
                 .setImageList(imageList)
                 .setIsFollow(concentration)
-                .setSupportNum(supportNum)
                 .setNickName(user.getUsername())
                 .setPic(user.getPic())
-                .setIsSupport(isSupport);
+                .setIsSupport(isSupport)
+                .setSupportNum(supportNum);
 
         return treadsVo;
     }
