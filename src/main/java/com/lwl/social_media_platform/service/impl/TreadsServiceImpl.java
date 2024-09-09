@@ -206,7 +206,7 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
             boolean concentration;
             if (stringRedisTemplate.opsForZSet().score(FOLLOW_LIST_KEY + toUserId, userId) != null) {
                 concentration = true;
-            }else {
+            } else {
                 concentration = concentrationService.lambdaQuery()
                         .eq(Concentration::getUserId, userId)
                         .eq(Concentration::getToUserId, toUserId)
@@ -290,14 +290,21 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
     @Override
     @Transactional
     public Result<String> support(Support support) {
-        String key = support.getUserId().toString();
+        Double isSupport = stringRedisTemplate.opsForZSet().score(SUPPORT_SCHEDULER_KEY + support.getTreadsId(), support.getUserId().toString());
 
-        Double score = stringRedisTemplate.opsForZSet().score(SUPPORT_KEY + support.getTreadsId(), JSONUtil.toJsonStr(support));
-        if (score == null) {
-            stringRedisTemplate.opsForZSet().add(SUPPORT_KEY + support.getTreadsId(), JSONUtil.toJsonStr(support), System.currentTimeMillis());
-        } else {
-            throw new ServiceException("已经点过赞啦!");
+        if (isSupport != null) {
+            boolean exists = supportService.lambdaQuery()
+                    .eq(Support::getUserId, support.getUserId())
+                    .eq(Support::getTreadsId, support.getTreadsId())
+                    .exists();
+            if (exists) {
+                throw new ServiceException("已经点过赞啦!");
+            }
         }
+
+        stringRedisTemplate.opsForHash().put(SUPPORT_KEY + support.getTreadsId(), support.getUserId(), JSONUtil.toJsonStr(support));
+        stringRedisTemplate.opsForZSet().add(SUPPORT_SCHEDULER_KEY + support.getTreadsId(), support.getUserId().toString(), System.currentTimeMillis());
+        stringRedisTemplate.opsForZSet().add(SUPPORT_SCHEDULER_TREAD_KEY, support.getTreadsId().toString(), System.currentTimeMillis());
 //        supportService.save(support);
 //        this.lambdaUpdate().setIncrBy(Treads::getSupportNum, 1);
         return Result.success("点赞成功");
@@ -306,16 +313,16 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
     @Override
     @Transactional
     public Result<String> cancelSupport(Support support) {
-        String key = support.getUserId() + ":" + support.getTreadsId();
-        stringRedisTemplate.opsForHash().put(SUPPORT_KEY + support.getTreadsId(), key, JSONUtil.toJsonStr(support));
-        stringRedisTemplate.opsForZSet().incrementScore(SUPPORT_NUM_KEY, support.getTreadsId().toString(), -1);
 
-        supportService.lambdaUpdate()
-                .eq(Support::getTreadsId, support.getTreadsId())
-                .eq(Support::getUserId, support.getUserId())
-                .remove();
-
-        this.lambdaUpdate().setDecrBy(Treads::getSupportNum, 1);
+        stringRedisTemplate.opsForHash().put(SUPPORT_KEY + support.getTreadsId(), support.getUserId(), JSONUtil.toJsonStr(support));
+        stringRedisTemplate.opsForZSet().add(SUPPORT_SCHEDULER_KEY + support.getTreadsId(), support.getUserId().toString(), System.currentTimeMillis());
+        stringRedisTemplate.opsForZSet().add(SUPPORT_SCHEDULER_TREAD_KEY, support.getTreadsId().toString(), System.currentTimeMillis());
+//        supportService.lambdaUpdate()
+//                .eq(Support::getTreadsId, support.getTreadsId())
+//                .eq(Support::getUserId, support.getUserId())
+//                .remove();
+//
+//        this.lambdaUpdate().setDecrBy(Treads::getSupportNum, 1);
         return Result.success("取消点赞成功");
     }
 

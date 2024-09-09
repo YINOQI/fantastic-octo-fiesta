@@ -2,11 +2,13 @@ package com.lwl.social_media_platform.domain.pojo;
 
 import com.baomidou.mybatisplus.annotation.TableField;
 import lombok.Data;
+import lombok.experimental.Accessors;
 
 /**
  * 点赞 实体
  */
 @Data
+@Accessors(chain = true)
 public class Support {
     Long id;
     Long userId;
