@@ -25,11 +25,12 @@ public class FollowTreadsPushConsumer implements RocketMQListener<Map<String, St
     @Override
     public void onMessage(Map<String, String> treadsMap) {
         String treadsDtoJSON = treadsMap.get("treadsDtoJSON");
-        String userId = (String) JSONUtil.parseObj(treadsDtoJSON).get("userId");
+        Long userId = (Long)JSONUtil.parseObj(treadsDtoJSON).get("userId");
+        String userIdStr = userId.toString() ;
         String treadsId = (String) JSONUtil.parseObj(treadsDtoJSON).get("treadsId");
-        Long end = stringRedisTemplate.opsForZSet().size(FOLLOW_LIST_KEY + userId);
+        Long end = stringRedisTemplate.opsForZSet().size(FOLLOW_LIST_KEY + userIdStr);
         if (end != null && end.intValue() != 0) {
-            Set<String> range = stringRedisTemplate.opsForZSet().range(FOLLOW_LIST_KEY + userId, 0, end);
+            Set<String> range = stringRedisTemplate.opsForZSet().range(FOLLOW_LIST_KEY + userIdStr, 0, end);
             if (range != null) {
                 range.forEach(id -> {
                     if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(USER_LOGIN_KEY + id))) {

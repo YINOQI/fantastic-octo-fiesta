@@ -62,7 +62,6 @@ public class TreadsUpdateConsumer implements RocketMQListener<Map<String, String
 
         try {
             UpdateResponse update = restHighLevelClient.update(updateRequest, RequestOptions.DEFAULT);
-            log.info("es更新文档结果为{}", update.toString());
         } catch (
                 IOException e) {
             throw new RuntimeException(e);

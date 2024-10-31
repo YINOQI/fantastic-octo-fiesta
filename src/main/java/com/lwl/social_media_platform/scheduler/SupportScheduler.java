@@ -12,6 +12,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
+import java.util.concurrent.*;
 
 import static com.lwl.social_media_platform.utils.RedisConstant.*;
 
@@ -22,83 +23,127 @@ public class SupportScheduler {
     private final StringRedisTemplate stringRedisTemplate;
     private final SupportService supportService;
     private final TreadsService treadsService;
-    private long start;
-    private long end;
+    private final ThreadPoolExecutor threadPoolExecutor = new ThreadPoolExecutor(
+            100, 400, 100,
+            TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(100),
+            new ThreadPoolExecutor.DiscardPolicy()
+    );
 
     //    @Async("supportTaskExecutor")
-    @Scheduled(cron = "0 0 0/1 * * ?")
+    @Scheduled(cron = "0 0/5 * * * ? ")
     public void updateSupport() {
+        log.info("开始定时任务，当前时间为{}", new Date());
         // 定时任务具体业务逻辑
-        Set<String> keys = stringRedisTemplate.keys(SUPPORT_SCHEDULER_KEY + "*");
+
         Long length = stringRedisTemplate.opsForZSet().zCard(SUPPORT_SCHEDULER_TREAD_KEY);
         if (length == null) {
             return;
         }
-        for (int i = 0; i < length.intValue() / 100; i++) {
-            start = i;
-            end = i + i * 100;
-            Set<String> stringSet = stringRedisTemplate.opsForZSet().range(SUPPORT_SCHEDULER_KEY, start, end);
-            update(stringSet);
-        }
 
-//        if (keys == null) {
-//            return;
-//        }
-//        keys.forEach(key -> {
-//            Map<Object, Object> entries = stringRedisTemplate.opsForHash().entries(key);
-//            if (entries.isEmpty()) {
-//                return;
-//            }
-//            List<Support> cancelList = new ArrayList<>();
-//            List<Support> supportsList = new ArrayList<>();
-//            entries.forEach((supportKey, supportObj) -> {
-//                String supportStr = (String) supportObj;
-//                Support support = JSONUtil.toBean(supportStr, Support.class);
-//                if (support.getIsCancel() == 1) {
-//                    supportsList.add(support);
-//                } else {
-//                    cancelList.add(support);
-//                }
-//            });
-//            supportService.saveBatch(supportsList);
-//            supportService.removeBatchByIds(cancelList);
-//            String treadsId = key.split(SUPPORT_SCHEDULER_KEY)[1];
-//            treadsService.lambdaUpdate()
-//                    .eq(Treads::getId, treadsId)
-//                    .setIncrBy(Treads::getSupportNum, supportsList.size() - cancelList.size())
-//                    .update();
-//        });
-//        stringRedisTemplate.delete(keys);
-    }
+        Set<String> hotTreadIdKeys = stringRedisTemplate.opsForZSet().reverseRangeByScore(SUPPORT_SCHEDULER_TREAD_KEY, 100000, Double.POSITIVE_INFINITY);
+        if (hotTreadIdKeys != null) {
+            log.info("开始高赞动态数据持久化任务，当前时间为{}", new Date());
+            CountDownLatch countDownLatch = new CountDownLatch(hotTreadIdKeys.size());
+            long startTimeMillis = System.currentTimeMillis();
+            hotTreadIdKeys.forEach(treadId -> {
 
-    private void update(Set<String> supportSet) {
-        if (supportSet == null) {
-            return;
-        }
-        supportSet.forEach(key -> {
-            Map<Object, Object> entries = stringRedisTemplate.opsForHash().entries(SUPPORT_KEY + key);
-            if (entries.isEmpty()) {
-                return;
-            }
-            List<Support> cancelList = new ArrayList<>();
-            List<Support> supportsList = new ArrayList<>();
-            entries.forEach((supportKey, supportObj) -> {
-                String supportStr = (String) supportObj;
-                Support support = JSONUtil.toBean(supportStr, Support.class);
-                if (support.getIsCancel() == 1) {
-                    supportsList.add(support);
+                Long size = stringRedisTemplate.opsForZSet().zCard(SUPPORT_SCHEDULER_KEY + treadId);
+                if (size != null) {
+                    threadPoolExecutor.submit(() -> {
+                        update(treadId);
+                        countDownLatch.countDown();
+                    });
                 } else {
-                    cancelList.add(support);
+                    countDownLatch.countDown();
                 }
             });
-            supportService.saveBatch(supportsList);
-            supportService.removeBatchByIds(cancelList);
-            String treadsId = key.split(SUPPORT_SCHEDULER_KEY)[1];
-            treadsService.lambdaUpdate()
-                    .eq(Treads::getId, treadsId)
-                    .setIncrBy(Treads::getSupportNum, supportsList.size() - cancelList.size())
-                    .update();
+
+            try {
+                countDownLatch.await();
+
+                long endTimeMillis = System.currentTimeMillis();
+                log.info("高赞动态数据持久化任务完成，当前时间为{}", new Date());
+                log.info("高赞动态数据持久化任务总用时时间为{}", endTimeMillis - startTimeMillis);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        Long commonSize = stringRedisTemplate.opsForZSet().count(SUPPORT_SCHEDULER_TREAD_KEY, 0, 100000);
+        if (commonSize != null) {
+            log.info("开始普通动态数据持久化任务，当前时间为{}", new Date());
+            long startTimeMillis = System.currentTimeMillis();
+            int count = 10;
+            CountDownLatch countDownLatch = new CountDownLatch(commonSize.intValue() / count + 1);
+            for (int offset = 0; offset < commonSize / count + 1; offset++) {
+                Set<String> treadIdKeys = stringRedisTemplate.opsForZSet().reverseRangeByScore(SUPPORT_SCHEDULER_TREAD_KEY, 0, 100000, offset, count);
+                if (treadIdKeys != null) {
+                    threadPoolExecutor.submit(() -> {
+                        update(treadIdKeys);
+                        countDownLatch.countDown();
+                    });
+                } else {
+                    countDownLatch.countDown();
+                }
+            }
+            try {
+                countDownLatch.await();
+
+                long endTimeMillis = System.currentTimeMillis();
+                log.info("普通动态数据持久化任务完成，当前时间为{}", new Date());
+                log.info("普通动态数据持久化任务总用时时间为{}", endTimeMillis - startTimeMillis);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
+    private void update(Set<String> treadIdKeys) {
+        treadIdKeys.forEach(treadId -> {
+            Long size = stringRedisTemplate.opsForZSet().zCard(SUPPORT_SCHEDULER_KEY + treadId);
+            if (size != null) {
+                update(treadId);
+            }
         });
-        stringRedisTemplate.delete(supportSet);
+    }
+
+    private void update(String treadId) {
+        Map<Object, Object> supportMap = stringRedisTemplate.opsForHash().entries(SUPPORT_KEY + treadId);
+        if (supportMap.isEmpty()) {
+            return;
+        }
+
+        List<Support> cancelList = new ArrayList<>();
+        List<Support> supportsList = new ArrayList<>();
+
+        supportMap.forEach((userId, supportObj) -> {
+            String supportStr = (String) supportObj;
+            Support support = JSONUtil.toBean(supportStr, Support.class);
+            if (support.getIsCancel() == 1) {
+                supportsList.add(support);
+            } else {
+                cancelList.add(support);
+            }
+        });
+
+        int support = 0;
+        int cancel = 0;
+        if (!supportsList.isEmpty()) {
+            supportService.saveBatch(supportsList);
+            support = supportsList.size();
+        }
+
+        if (!cancelList.isEmpty()) {
+            supportService.removeBatchByIds(cancelList);
+            cancel = cancelList.size();
+        }
+
+        treadsService.lambdaUpdate()
+                .eq(Treads::getId, treadId)
+                .setIncrBy(Treads::getSupportNum, support - cancel)
+                .update();
+
+        stringRedisTemplate.delete(SUPPORT_KEY + treadId);
     }
 }

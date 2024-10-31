@@ -49,7 +49,6 @@ public class TreadsConsumer implements RocketMQListener<Map<String, String>> {
         IndexRequest request = new IndexRequest("treads-vo").source(treadsVoJson, XContentType.JSON).id(idStr);
         try {
             IndexResponse indexResponse = restHighLevelClient.index(request, RequestOptions.DEFAULT);
-            log.info("队列异步添加文档结果为:{}", indexResponse.getShardInfo().status().toString());
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -64,7 +63,14 @@ public class TreadsConsumer implements RocketMQListener<Map<String, String>> {
 
         // 获取动态的标签的id
         List<TreadsTag> treadsTagList = treadsDTO.getTreadsTagList();
-        List<Long> tagIdList = treadsTagList.stream().map(TreadsTag::getTagId).toList();
+
+        List<Long> tagIdList;
+        if (treadsTagList == null || treadsTagList.isEmpty()) {
+            tagIdList = Collections.emptyList();
+        } else {
+            tagIdList = treadsTagList.stream().map(TreadsTag::getTagId).toList();
+        }
+
         List<Tag> tagList;
         // 根据id获取标签内容
         if (CollUtil.isNotEmpty(tagIdList)) {

@@ -32,7 +32,6 @@ public class TreadsProducer {
         SendResult sendResult;
         try {
             sendResult = rocketMQTemplate.syncSend(topic + ":" + "insert", build, 2000L);
-            log.info("动态发送结果：{}，消息ID：{}，消息Keys：{}", sendResult.getSendStatus(), sendResult.getMsgId(), keys);
         } catch (Throwable ex) {
             log.error("[消息访问统计监控] 消息发送失败", ex);
         }
@@ -44,7 +43,6 @@ public class TreadsProducer {
         SendResult sendResult;
         try {
             sendResult = rocketMQTemplate.syncSend(topic + ":" + "update", build, 2000L);
-            log.info("动态发送结果：{}，消息ID：{}，消息Keys：{}", sendResult.getSendStatus(), sendResult.getMsgId(), keys);
         } catch (Throwable ex) {
             log.error("[消息访问统计监控] 消息发送失败", ex);
         }
@@ -56,7 +54,6 @@ public class TreadsProducer {
         SendResult sendResult;
         try {
             sendResult = rocketMQTemplate.syncSend(topic + ":" + "push", build, 2000L);
-            log.info("动态发送结果：{}，消息ID：{}，消息Keys：{}", sendResult.getSendStatus(), sendResult.getMsgId(), keys);
         } catch (Throwable ex) {
             log.error("[消息访问统计监控] 消息发送失败", ex);
         }

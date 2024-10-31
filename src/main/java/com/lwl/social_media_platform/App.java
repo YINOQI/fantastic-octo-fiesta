@@ -6,7 +6,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
-@EnableAsync
+
 @EnableScheduling
 @SpringBootApplication
 @MapperScan("com.lwl.social_media_platform.mapper")

@@ -3,8 +3,10 @@ package com.lwl.social_media_platform;
 import cn.hutool.json.JSONUtil;
 import com.lwl.social_media_platform.common.Result;
 import com.lwl.social_media_platform.domain.dto.PageDTO;
+import com.lwl.social_media_platform.domain.pojo.ChatMessage;
 import com.lwl.social_media_platform.domain.query.TreadsPageQuery;
 import com.lwl.social_media_platform.domain.vo.TreadsVo;
+import com.lwl.social_media_platform.service.ChatMessageService;
 import com.lwl.social_media_platform.service.TreadsService;
 import org.elasticsearch.action.bulk.BulkRequest;
 import org.elasticsearch.action.index.IndexRequest;
@@ -27,6 +29,8 @@ class AppTests {
     @Autowired
     private TreadsService treadsService;
 
+    @Autowired
+    private ChatMessageService chatMessageService;
     public static final String MAPPING_TEMPLATE = """
              {
                  "mappings": {

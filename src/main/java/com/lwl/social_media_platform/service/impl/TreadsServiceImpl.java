@@ -67,12 +67,12 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
     @Transactional
     public Result<String> publish(TreadsDTO treadsDTO) {
         Long userId = BaseContext.getCurrentId();
-        RLock lock = redissonClient.getLock(TREADS_ADD_KEY + userId.toString());
-        try {
-            boolean isLock = lock.tryLock(1, TimeUnit.SECONDS);
-            if (!isLock) {
-                throw new ServiceException("请勿多次点击");
-            }
+//        RLock lock = redissonClient.getLock(TREADS_ADD_KEY + userId.toString());
+//        try {
+//            boolean isLock = lock.tryLock(1, TimeUnit.SECONDS);
+//            if (!isLock) {
+//                throw new ServiceException("请勿多次点击");
+//            }
             treadsDTO.setContent(
                     treadsDTO.getContent()
                             .replace("\n", "<br/>")
@@ -105,14 +105,14 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
             }
 
             treadsProducer.sendTreadMessage(JSONUtil.toJsonStr(treadsDTO));
-            treadsProducer.sendTreadsToFollowMessage(JSONUtil.toJsonStr(treadsDTO));
+//            treadsProducer.sendTreadsToFollowMessage(JSONUtil.toJsonStr(treadsDTO));
 
             return Result.success("发布成功");
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        } finally {
-            lock.unlock();
-        }
+//        } catch (InterruptedException e) {
+//            throw new RuntimeException(e);
+//        } finally {
+//            lock.unlock();
+//        }
     }
 
     @Override
@@ -136,11 +136,18 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
         Long userId = BaseContext.getCurrentId();
 
         Map<Object, Object> entries = stringRedisTemplate.opsForHash().entries(TREADS_VO_KEY + id);
+
         if (!entries.isEmpty()) {
             if (entries.containsKey("nullTread")) {
                 return Result.error("该动态不存在");
             }
-            TreadsVo treadsVo = BeanUtils.fillBeanWithMap(entries, new TreadsVo(), false);
+            TreadsVo treadsVo = BeanUtils.fillBeanWithMap(entries, new TreadsVo(), false,
+                    CopyOptions.create().setIgnoreError(true));
+
+            List<Image> imageList = JSONUtil.toList((String)entries.get("imageList"),Image.class);
+            List<Tag> tagList = JSONUtil.toList((String)entries.get("tagList"),Tag.class);
+            treadsVo.setImageList(imageList).setTagList(tagList);
+
             return Result.success(treadsVo);
         }
 
@@ -155,16 +162,23 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
             Treads treads = this.getById(id);
             if (treads == null) {
                 stringRedisTemplate.opsForHash().put(TREADS_VO_KEY + id, "nullTread", "-");
-                stringRedisTemplate.expire(TREADS_VO_KEY + id, 3, TimeUnit.MINUTES);
+                stringRedisTemplate.expire(TREADS_VO_KEY + id, 1, TimeUnit.MINUTES);
                 return Result.error("该动态不存在");
             }
 
             TreadsVo treadsVo = getTreadsVo(treads);
 
+
             Map<String, Object> stringObjectMap = BeanUtils.beanToMap(treadsVo, new HashMap<>(),
                     CopyOptions.create()
                             .setIgnoreNullValue(true)
-                            .setFieldValueEditor((name, value) -> value.toString()));
+                            .setFieldValueEditor((name, value) -> {
+                                if (name.equals("imageList") || name.equals("tagList")){
+                                    return JSONUtil.toJsonStr(value);
+                                }else {
+                                    return value.toString();
+                                }
+                            }));
 
             stringRedisTemplate.opsForHash().putAll(TREADS_VO_KEY + treadsVo.getId(), stringObjectMap);
 
@@ -176,7 +190,7 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
 
     @Override
     public Result<PageDTO<TreadsVo>> getTreadByUserId(TreadsPageQuery treadsPageQuery) throws IOException {
-        long userId = BaseContext.getCurrentId();
+        Long userId = BaseContext.getCurrentId();
 
         // 构造查询条件
         SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder()
@@ -204,7 +218,7 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
             long toUserId = treadsVo.getUserId();
             // 是否关注
             boolean concentration;
-            if (stringRedisTemplate.opsForZSet().score(FOLLOW_LIST_KEY + toUserId, userId) != null) {
+            if (stringRedisTemplate.opsForZSet().score(FOLLOW_LIST_KEY + toUserId, userId.toString()) != null) {
                 concentration = true;
             } else {
                 concentration = concentrationService.lambdaQuery()
@@ -302,27 +316,27 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
             }
         }
 
-        stringRedisTemplate.opsForHash().put(SUPPORT_KEY + support.getTreadsId(), support.getUserId(), JSONUtil.toJsonStr(support));
+        support.setIsCancel(1);
+
+        stringRedisTemplate.opsForHash().put(SUPPORT_KEY + support.getTreadsId(), support.getUserId().toString(), JSONUtil.toJsonStr(support));
         stringRedisTemplate.opsForZSet().add(SUPPORT_SCHEDULER_KEY + support.getTreadsId(), support.getUserId().toString(), System.currentTimeMillis());
-        stringRedisTemplate.opsForZSet().add(SUPPORT_SCHEDULER_TREAD_KEY, support.getTreadsId().toString(), System.currentTimeMillis());
-//        supportService.save(support);
-//        this.lambdaUpdate().setIncrBy(Treads::getSupportNum, 1);
+        Long supportNum = stringRedisTemplate.opsForZSet().zCard(SUPPORT_SCHEDULER_KEY + support.getTreadsId());
+        if (supportNum != null) {
+            stringRedisTemplate.opsForZSet().add(SUPPORT_SCHEDULER_TREAD_KEY, support.getTreadsId().toString(), supportNum);
+        }
+
         return Result.success("点赞成功");
     }
 
     @Override
     @Transactional
     public Result<String> cancelSupport(Support support) {
+        support.setIsCancel(0);
 
-        stringRedisTemplate.opsForHash().put(SUPPORT_KEY + support.getTreadsId(), support.getUserId(), JSONUtil.toJsonStr(support));
-        stringRedisTemplate.opsForZSet().add(SUPPORT_SCHEDULER_KEY + support.getTreadsId(), support.getUserId().toString(), System.currentTimeMillis());
-        stringRedisTemplate.opsForZSet().add(SUPPORT_SCHEDULER_TREAD_KEY, support.getTreadsId().toString(), System.currentTimeMillis());
-//        supportService.lambdaUpdate()
-//                .eq(Support::getTreadsId, support.getTreadsId())
-//                .eq(Support::getUserId, support.getUserId())
-//                .remove();
-//
-//        this.lambdaUpdate().setDecrBy(Treads::getSupportNum, 1);
+        stringRedisTemplate.opsForHash().put(SUPPORT_KEY + support.getTreadsId(), support.getUserId().toString(), JSONUtil.toJsonStr(support));
+        stringRedisTemplate.opsForZSet().remove(SUPPORT_SCHEDULER_KEY + support.getTreadsId(), support.getUserId().toString());
+        stringRedisTemplate.opsForZSet().incrementScore(SUPPORT_SCHEDULER_TREAD_KEY, support.getTreadsId().toString(), -1);
+
         return Result.success("取消点赞成功");
     }
 
