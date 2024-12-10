@@ -37,7 +37,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(value = LoginException.class)
     public Result<String> tokenExceptionHandler(LoginException mes) {
-        return Result.error(mes.getMessage());
+        return Result.error(mes.getMessage(),401);
     }
 
     @ExceptionHandler(value = AbstractException.class)

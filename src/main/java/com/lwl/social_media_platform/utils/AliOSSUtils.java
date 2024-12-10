@@ -10,8 +10,8 @@ import java.time.format.DateTimeFormatter;
 @Component
 public class AliOSSUtils {
     private final String endpoint = "https://oss-cn-beijing.aliyuncs.com";
-    private final String accessKeyId = "*******";
-    private final String accessKeySecret =  "******";
+    private final String accessKeyId = "LTAI5tRPsN1A47mXCPw99ggu";
+    private final String accessKeySecret = "6qgSi8D719ySK99miAo6yGwYCdOwgO";
     private final String bucketName = "homework1015";
     //上传图片
     public String upload(MultipartFile multipartFile) throws IOException{

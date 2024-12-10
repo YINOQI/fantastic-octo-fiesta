@@ -11,4 +11,5 @@ public class TreadsPageQuery extends PageQuery{
 
     // 根据用户查询
     private Long userId;
+    private Long tagId;
 }

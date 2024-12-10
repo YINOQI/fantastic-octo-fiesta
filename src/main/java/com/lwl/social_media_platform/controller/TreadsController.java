@@ -38,6 +38,10 @@ public class TreadsController {
     public Result<PageDTO<TreadsVo>> getTreadsByUser(TreadsPageQuery treadsPageQuery) throws IOException {
         return treadsService.getTreadByUserId(treadsPageQuery);
     }
+    @GetMapping("/get-by-tag")
+    public Result<PageDTO<TreadsVo>> getTreadsByTag(TreadsPageQuery treadsPageQuery) throws IOException {
+        return treadsService.getTreadByUserTag(treadsPageQuery);
+    }
 
     @PostMapping("/update")
     public Result<String> updateTread(@RequestBody TreadsDTO treadsDTO){
@@ -78,5 +82,12 @@ public class TreadsController {
     @GetMapping("/current-hot-treads")
     public Result<List<TreadsVo>> getCurrentHotTreads(){
         return Result.success(treadsService.getCurrentHotTreads());
+    }
+
+    @GetMapping("/get-concentration-list")
+    public Result<PageDTO<TreadsVo>> getConcentrationTreads(TreadsPageQuery treadsPageQuery){
+        Long userId = BaseContext.getCurrentId();
+        treadsPageQuery.setUserId(userId);
+        return treadsService.getConcentrationTreads(treadsPageQuery);
     }
 }

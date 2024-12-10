@@ -6,6 +6,7 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.lwl.social_media_platform.common.BaseContext;
@@ -14,8 +15,10 @@ import com.lwl.social_media_platform.common.exception.ServiceException;
 import com.lwl.social_media_platform.domain.dto.PageDTO;
 import com.lwl.social_media_platform.domain.dto.TreadsDTO;
 import com.lwl.social_media_platform.domain.pojo.*;
+import com.lwl.social_media_platform.domain.query.ConcentrationPageQuery;
 import com.lwl.social_media_platform.domain.query.TreadsPageQuery;
 import com.lwl.social_media_platform.domain.vo.TreadsVo;
+import com.lwl.social_media_platform.domain.vo.UserConcentrationVo;
 import com.lwl.social_media_platform.mapper.TreadsMapper;
 import com.lwl.social_media_platform.mq.TreadsProducer;
 import com.lwl.social_media_platform.service.*;
@@ -73,41 +76,41 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
 //            if (!isLock) {
 //                throw new ServiceException("请勿多次点击");
 //            }
-            treadsDTO.setContent(
-                    treadsDTO.getContent()
-                            .replace("\n", "<br/>")
-                            .replace("\r", "")
-            );
+        treadsDTO.setContent(
+                treadsDTO.getContent()
+                        .replace("\n", "<br/>")
+                        .replace("\r", "")
+        );
 
-            treadsDTO.setUserId(userId);
-            treadsDTO.setCreateTime(LocalDateTime.now());
-            treadsDTO.setSupportNum(0L);
+        treadsDTO.setUserId(userId);
+        treadsDTO.setCreateTime(LocalDateTime.now());
+        treadsDTO.setSupportNum(0L);
 
-            // 保存动态
-            this.save(treadsDTO);
+        // 保存动态
+        this.save(treadsDTO);
 
-            Long treadsId = treadsDTO.getId();
+        Long treadsId = treadsDTO.getId();
 
-            // 为 tag 设置动态id
-            List<TreadsTag> treadsTagList = treadsDTO.getTreadsTagList();
-            if (CollUtil.isNotEmpty(treadsTagList)) {
-                treadsTagList.forEach(item -> item.setTreadsId(treadsId));
-                // 保存标签
-                treadsTagService.saveBatch(treadsTagList);
-            }
+        // 为 tag 设置动态id
+        List<TreadsTag> treadsTagList = treadsDTO.getTreadsTagList();
+        if (CollUtil.isNotEmpty(treadsTagList)) {
+            treadsTagList.forEach(item -> item.setTreadsId(treadsId));
+            // 保存标签
+            treadsTagService.saveBatch(treadsTagList);
+        }
 
-            // 为 图片列表 设置动态id
-            List<Image> imageList = treadsDTO.getImageList();
-            if (CollUtil.isNotEmpty(imageList)) {
-                imageList.forEach(item -> item.setTreadsId(treadsId));
-                // 保存图片
-                imageService.saveBatch(imageList);
-            }
+        // 为 图片列表 设置动态id
+        List<Image> imageList = treadsDTO.getImageList();
+        if (CollUtil.isNotEmpty(imageList)) {
+            imageList.forEach(item -> item.setTreadsId(treadsId));
+            // 保存图片
+            imageService.saveBatch(imageList);
+        }
 
-            treadsProducer.sendTreadMessage(JSONUtil.toJsonStr(treadsDTO));
+        treadsProducer.sendTreadMessage(JSONUtil.toJsonStr(treadsDTO));
 //            treadsProducer.sendTreadsToFollowMessage(JSONUtil.toJsonStr(treadsDTO));
 
-            return Result.success("发布成功");
+        return Result.success("发布成功");
 //        } catch (InterruptedException e) {
 //            throw new RuntimeException(e);
 //        } finally {
@@ -144,8 +147,8 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
             TreadsVo treadsVo = BeanUtils.fillBeanWithMap(entries, new TreadsVo(), false,
                     CopyOptions.create().setIgnoreError(true));
 
-            List<Image> imageList = JSONUtil.toList((String)entries.get("imageList"),Image.class);
-            List<Tag> tagList = JSONUtil.toList((String)entries.get("tagList"),Tag.class);
+            List<Image> imageList = JSONUtil.toList((String) entries.get("imageList"), Image.class);
+            List<Tag> tagList = JSONUtil.toList((String) entries.get("tagList"), Tag.class);
             treadsVo.setImageList(imageList).setTagList(tagList);
 
             return Result.success(treadsVo);
@@ -173,19 +176,64 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
                     CopyOptions.create()
                             .setIgnoreNullValue(true)
                             .setFieldValueEditor((name, value) -> {
-                                if (name.equals("imageList") || name.equals("tagList")){
+                                if (name.equals("imageList") || name.equals("tagList")) {
                                     return JSONUtil.toJsonStr(value);
-                                }else {
+                                } else {
                                     return value.toString();
                                 }
                             }));
 
             stringRedisTemplate.opsForHash().putAll(TREADS_VO_KEY + treadsVo.getId(), stringObjectMap);
+            stringRedisTemplate.expire(TREADS_VO_KEY + treadsVo.getId(), 3,TimeUnit.DAYS);
 
             return Result.success(treadsVo);// 调用 getTreadsVo 方法 返回 TreadsVo
         } finally {
             lock.unlock();
         }
+    }
+
+    public PageDTO<TreadsVo> getTreadByUserIdOnMysql(TreadsPageQuery treadsPageQuery) {
+        Long userId = treadsPageQuery.getUserId();
+        Page<Treads> page = this.lambdaQuery().eq(Treads::getUserId, userId).page(treadsPageQuery.toMpPageDefaultSortByCreateTimeDesc());
+        List<TreadsVo> treadsVoList = new ArrayList<>();
+        page.getRecords().forEach(item -> {
+            TreadsVo treadsVo = getTreadsVo(item);
+            // 获取动态作者id
+            long toUserId = treadsVo.getUserId();
+            // 是否关注
+            boolean concentration;
+            if (stringRedisTemplate.opsForZSet().score(FOLLOW_LIST_KEY + toUserId, userId.toString()) != null) {
+                concentration = true;
+            } else {
+                concentration = concentrationService.lambdaQuery()
+                        .eq(Concentration::getUserId, userId)
+                        .eq(Concentration::getToUserId, toUserId)
+                        .exists();
+            }
+
+            // 动态id
+            Long treadsVoId = treadsVo.getId();
+
+            LambdaQueryWrapper<Support> supportLambdaQueryWrapper = new LambdaQueryWrapper<>();
+            // 获取点赞数
+            Long score = stringRedisTemplate.opsForZSet().size(SUPPORT_KEY + treadsVoId);
+            long supportNum;
+            supportNum = Objects.requireNonNullElseGet(score, () -> supportService.count(supportLambdaQueryWrapper.eq(Support::getTreadsId, treadsVoId)));
+            // 是否点赞
+            boolean isSupport = supportService.exists(supportLambdaQueryWrapper.eq(Support::getTreadsId, treadsVoId).eq(Support::getUserId, userId));
+
+            // 封装
+            treadsVo.setIsFollow(concentration)
+                    .setIsSupport(isSupport)
+                    .setSupportNum(supportNum);
+
+            treadsVoList.add(treadsVo);
+        });
+        PageDTO<TreadsVo> treadsVoPageDTO = new PageDTO<>();
+        treadsVoPageDTO.setList(treadsVoList)
+                .setPages(Integer.toUnsignedLong(treadsPageQuery.getPageSize()))
+                .setTotal(page.getTotal());
+        return treadsVoPageDTO;
     }
 
     @Override
@@ -209,6 +257,10 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
 
         // 转化为treadsVo
         List<TreadsVo> treadsVoList = new ArrayList<>();
+        if (searchResponse.getHits().getHits().length == 0) {
+            return Result.success(getTreadByUserIdOnMysql(treadsPageQuery));
+        }
+
         for (SearchHit hit :
                 searchResponse.getHits().getHits()) {
             Map<String, Object> sourceAsMap = hit.getSourceAsMap();
@@ -263,16 +315,30 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
 
     @Override
     public Result<PageDTO<TreadsVo>> getTreadsPage(TreadsPageQuery treadsPageQuery) {
-        Page<Treads> treadsPage = this.lambdaQuery()
-                .like(StrUtil.isNotEmpty(treadsPageQuery.getKey()), Treads::getContent, treadsPageQuery.getKey())
-                .page(treadsPageQuery.toMpPageDefaultSortByCreateTimeDesc());
+        Long userId = BaseContext.getCurrentId();
+        IPage<TreadsVo> treadsVoPage = this.baseMapper.getTreadsVoPage(userId, treadsPageQuery.toMpPageDefaultSortByCreateTimeDesc(),treadsPageQuery.getUserId());
+        treadsVoPage.getRecords().forEach(treadsVo -> {
+            if (treadsVo.getImageList() == null) {
+                treadsVo.setImageList(Collections.emptyList());
+            }
+            if (treadsVo.getTagList() == null) {
+                treadsVo.setTagList(Collections.emptyList());
+            }
+        });
+        PageDTO<TreadsVo> tPageDTO = new PageDTO<>(treadsVoPage.getTotal(), treadsVoPage.getPages(), treadsVoPage.getRecords());
 
-        List<Treads> records = treadsPage.getRecords();
-        List<TreadsVo> treadsVos = records.stream()
-                .map(this::getTreadsVo)
-                .toList();
+        return Result.success(tPageDTO);
 
-        return Result.success(PageUtils.of(treadsPage, treadsVos));
+//        Page<Treads> treadsPage = this.lambdaQuery()
+//                .like(StrUtil.isNotEmpty(treadsPageQuery.getKey()), Treads::getContent, treadsPageQuery.getKey())
+//                .page(treadsPageQuery.toMpPageDefaultSortByCreateTimeDesc());
+//
+//        List<Treads> records = treadsPage.getRecords();
+//        List<TreadsVo> treadsVos = records.stream()
+//                .map(this::getTreadsVo)
+//                .toList();
+//
+//        return Result.success(PageUtils.of(treadsPage,treadsVos));
     }
 
     @Override
@@ -365,6 +431,36 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
         return treadsVos;
     }
 
+    @Override
+    public Result<PageDTO<TreadsVo>> getConcentrationTreads(TreadsPageQuery treadsPageQuery) {
+        return getTreadsPage(treadsPageQuery);
+
+//        Long userId = treadsPageQuery.getUserId();
+//        ConcentrationPageQuery concentrationPageQuery = new ConcentrationPageQuery();
+//        concentrationPageQuery.setUserId(userId);
+//        List<UserConcentrationVo> list = concentrationService.getConcentration(concentrationPageQuery).getData().getList();
+//        List<Long> concentrationIds = list.stream().map(UserConcentrationVo::getId).toList();
+//        Page<Treads> treadsPage = this.lambdaQuery()
+//                .in(Treads::getUserId, concentrationIds)
+//                .orderByAsc(Treads::getCreateTime)
+//                .page(treadsPageQuery.toMpPageDefaultSortByCreateTimeDesc());
+//
+//        List<Treads> records = treadsPage.getRecords();
+//        List<TreadsVo> treadsVoList = records.stream().map(this::getTreadsVo).toList();
+//
+//        PageDTO<TreadsVo> treadsVoPageDTO = new PageDTO<>();
+//        treadsVoPageDTO.setList(treadsVoList)
+//                .setPages(Integer.toUnsignedLong(treadsPageQuery.getPageSize()))
+//                .setTotal(treadsPage.getTotal());
+//
+//        return Result.success(treadsVoPageDTO);
+    }
+
+    @Override
+    public Result<PageDTO<TreadsVo>> getTreadByUserTag(TreadsPageQuery treadsPageQuery) {
+        return null;
+    }
+
     /**
      * 将 组合 TreadsVo 抽象出为一个方法
      *
@@ -402,8 +498,6 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
         User user = userService.getById(toUserId);
 
         LambdaQueryWrapper<Support> supportLambdaQueryWrapper = new LambdaQueryWrapper<>();
-        // 获取点赞数
-        long supportNum = supportService.count(supportLambdaQueryWrapper.eq(Support::getTreadsId, id));
         // 是否点赞
         boolean isSupport = supportService.exists(supportLambdaQueryWrapper.eq(Support::getTreadsId, id).eq(Support::getUserId, userId));
 
@@ -413,10 +507,9 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
         treadsVo.setTagList(tags)
                 .setImageList(imageList)
                 .setIsFollow(concentration)
-                .setNickName(user.getUsername())
+                .setNickName(user.getNickname())
                 .setPic(user.getPic())
-                .setIsSupport(isSupport)
-                .setSupportNum(supportNum);
+                .setIsSupport(isSupport);
 
         return treadsVo;
     }

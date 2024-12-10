@@ -19,7 +19,13 @@ public class WebMvcConfig extends WebMvcConfigurationSupport {
     protected void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(jwtTokenInterceptor)
                 .addPathPatterns("/**")
-                .excludePathPatterns("/user/login","/user/register");
+                .excludePathPatterns("/user/login",
+                        "/user/register",
+                        "/user/getUserById",
+                        "/tread/get",
+                        "/tread/getByUser",
+                        "/tread/page",
+                        "/tread/current-hot-treads");
     }
     @Override
     protected void extendMessageConverters(List<HttpMessageConverter<?>> converters) {

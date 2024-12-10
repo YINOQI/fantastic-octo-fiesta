@@ -34,4 +34,7 @@ public interface TreadsService extends IService<Treads> {
 
     List<TreadsVo> getCurrentHotTreads();
 
+    Result<PageDTO<TreadsVo>> getConcentrationTreads(TreadsPageQuery treadsPageQuery);
+
+    Result<PageDTO<TreadsVo>> getTreadByUserTag(TreadsPageQuery treadsPageQuery);
 }
