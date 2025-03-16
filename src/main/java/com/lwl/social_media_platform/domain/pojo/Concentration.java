@@ -5,6 +5,9 @@ import lombok.experimental.Accessors;
 
 import java.time.LocalDateTime;
 
+/**
+ * 关注信息
+ */
 @Data
 @Accessors(chain = true)
 public class Concentration {

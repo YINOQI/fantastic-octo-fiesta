@@ -11,6 +11,7 @@ import com.lwl.social_media_platform.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.IOException;
 import java.util.List;
 
 @RestController
@@ -59,7 +60,7 @@ public class UserController {
     }
 
     @PostMapping("/update")
-    public Result<UserVo> updateUser(@RequestBody User user){
+    public Result<UserVo> updateUser(@RequestBody User user) throws IOException {
         return Result.success(userService.updateUser(user));
     }
 }

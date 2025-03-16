@@ -9,5 +9,5 @@ import org.apache.ibatis.annotations.Param;
 
 @Mapper
 public interface TreadsMapper extends BaseMapper<Treads> {
-    IPage<TreadsVo> getTreadsVoPage(@Param("userId") Long userId, IPage<TreadsVo> page,@Param("followId") Long followId);
+    IPage<TreadsVo> getTreadsVoPage(@Param("userId") Long userId, IPage<TreadsVo> page,@Param("followId") String followId);
 }

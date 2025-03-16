@@ -3,7 +3,6 @@ package com.lwl.social_media_platform.service.impl;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.bean.copier.CopyOptions;
 import cn.hutool.core.collection.CollUtil;
-import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
@@ -15,10 +14,8 @@ import com.lwl.social_media_platform.common.exception.ServiceException;
 import com.lwl.social_media_platform.domain.dto.PageDTO;
 import com.lwl.social_media_platform.domain.dto.TreadsDTO;
 import com.lwl.social_media_platform.domain.pojo.*;
-import com.lwl.social_media_platform.domain.query.ConcentrationPageQuery;
 import com.lwl.social_media_platform.domain.query.TreadsPageQuery;
 import com.lwl.social_media_platform.domain.vo.TreadsVo;
-import com.lwl.social_media_platform.domain.vo.UserConcentrationVo;
 import com.lwl.social_media_platform.mapper.TreadsMapper;
 import com.lwl.social_media_platform.mq.TreadsProducer;
 import com.lwl.social_media_platform.service.*;
@@ -184,7 +181,7 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
                             }));
 
             stringRedisTemplate.opsForHash().putAll(TREADS_VO_KEY + treadsVo.getId(), stringObjectMap);
-            stringRedisTemplate.expire(TREADS_VO_KEY + treadsVo.getId(), 3,TimeUnit.DAYS);
+            stringRedisTemplate.expire(TREADS_VO_KEY + treadsVo.getId(), 3, TimeUnit.DAYS);
 
             return Result.success(treadsVo);// 调用 getTreadsVo 方法 返回 TreadsVo
         } finally {
@@ -216,9 +213,9 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
 
             LambdaQueryWrapper<Support> supportLambdaQueryWrapper = new LambdaQueryWrapper<>();
             // 获取点赞数
-            Long score = stringRedisTemplate.opsForZSet().size(SUPPORT_KEY + treadsVoId);
+            Double score = stringRedisTemplate.opsForZSet().score(SUPPORT_SCHEDULER_TREAD_KEY, treadsVoId.toString());
             long supportNum;
-            supportNum = Objects.requireNonNullElseGet(score, () -> supportService.count(supportLambdaQueryWrapper.eq(Support::getTreadsId, treadsVoId)));
+            supportNum = Objects.requireNonNullElseGet(score != null ? score.longValue() : null, () -> supportService.count(supportLambdaQueryWrapper.eq(Support::getTreadsId, treadsVoId)));
             // 是否点赞
             boolean isSupport = supportService.exists(supportLambdaQueryWrapper.eq(Support::getTreadsId, treadsVoId).eq(Support::getUserId, userId));
 
@@ -240,20 +237,28 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
     public Result<PageDTO<TreadsVo>> getTreadByUserId(TreadsPageQuery treadsPageQuery) throws IOException {
         Long userId = BaseContext.getCurrentId();
 
+//        SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder().query(QueryBuilders.termsQuery("content","yes"));
+//        SearchRequest searchRequest = new SearchRequest("treads-vo").source(searchSourceBuilder);
+//        SearchResponse search = restHighLevelClient.search(searchRequest, RequestOptions.DEFAULT);
+//        System.out.println("search->"+Arrays.toString(search.getHits().getHits()));
+//        return null;
+
         // 构造查询条件
         SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder()
-                // 起始页
-                .from(treadsPageQuery.getPageNo())
-                // 每页数量
-                .size(treadsPageQuery.getPageSize())
+//                // 起始页
+//                .from(treadsPageQuery.getPageNo())
+//                // 每页数量
+//                .size(treadsPageQuery.getPageSize())
                 // 指定查询用户id字段
-                .query(QueryBuilders.matchQuery("userId", treadsPageQuery.getUserId().toString()))
+                .query(QueryBuilders.multiMatchQuery(treadsPageQuery.getKey()).field("*"))
                 // 排序字段
-                .sort("createTime", SortOrder.DESC);
+                .sort("createTime", SortOrder.ASC);
         SearchRequest searchRequest = new SearchRequest("treads-vo").source(searchSourceBuilder);
 
         // 聚合查询
         SearchResponse searchResponse = restHighLevelClient.search(searchRequest, RequestOptions.DEFAULT);
+        System.out.println("search->" + Arrays.toString(searchResponse.getHits().getHits()));
+
 
         // 转化为treadsVo
         List<TreadsVo> treadsVoList = new ArrayList<>();
@@ -284,7 +289,7 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
 
             LambdaQueryWrapper<Support> supportLambdaQueryWrapper = new LambdaQueryWrapper<>();
             // 获取点赞数
-            Long score = stringRedisTemplate.opsForZSet().size(SUPPORT_KEY + treadsVoId);
+            Long score = stringRedisTemplate.opsForZSet().size(SUPPORT_SCHEDULER_TREAD_KEY + treadsVoId);
             long supportNum;
             supportNum = Objects.requireNonNullElseGet(score, () -> supportService.count(supportLambdaQueryWrapper.eq(Support::getTreadsId, treadsVoId)));
             // 是否点赞
@@ -300,7 +305,7 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
 
         PageDTO<TreadsVo> treadsVoPageDTO = new PageDTO<>();
         treadsVoPageDTO.setList(treadsVoList)
-                .setPages(Integer.toUnsignedLong(treadsPageQuery.getPageSize()))
+                .setPages(Integer.toUnsignedLong(treadsPageQuery.getPageNo()))//Integer.toUnsignedLong(treadsPageQuery.getPageSize())
                 .setTotal(searchResponse.getHits().getTotalHits().value);
 
         return Result.success(treadsVoPageDTO);
@@ -314,16 +319,17 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
 
 
     @Override
-    public Result<PageDTO<TreadsVo>> getTreadsPage(TreadsPageQuery treadsPageQuery) {
+    public Result<PageDTO<TreadsVo>> getTreadsPage(TreadsPageQuery treadsPageQuery) throws IOException {
+        if (!treadsPageQuery.getKey().equals("")) {
+            return getTreadByUserId(treadsPageQuery);
+        }
         Long userId = BaseContext.getCurrentId();
-        IPage<TreadsVo> treadsVoPage = this.baseMapper.getTreadsVoPage(userId, treadsPageQuery.toMpPageDefaultSortByCreateTimeDesc(),treadsPageQuery.getUserId());
+        IPage<TreadsVo> treadsVoPage = this.baseMapper.getTreadsVoPage(userId, treadsPageQuery.toMpPageDefaultSortByCreateTimeDesc(), treadsPageQuery.getIsFollow());
+
         treadsVoPage.getRecords().forEach(treadsVo -> {
-            if (treadsVo.getImageList() == null) {
-                treadsVo.setImageList(Collections.emptyList());
-            }
-            if (treadsVo.getTagList() == null) {
-                treadsVo.setTagList(Collections.emptyList());
-            }
+            List<Tag> tagDetails = tagService.getTagDetails(treadsVo.getId());
+            List<Image> imageList = imageService.lambdaQuery().eq(Image::getTreadsId, treadsVo.getId()).list();
+            treadsVo.setTagList(tagDetails).setImageList(imageList);
         });
         PageDTO<TreadsVo> tPageDTO = new PageDTO<>(treadsVoPage.getTotal(), treadsVoPage.getPages(), treadsVoPage.getRecords());
 
@@ -432,7 +438,8 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
     }
 
     @Override
-    public Result<PageDTO<TreadsVo>> getConcentrationTreads(TreadsPageQuery treadsPageQuery) {
+    public Result<PageDTO<TreadsVo>> getConcentrationTreads(TreadsPageQuery treadsPageQuery) throws IOException {
+        treadsPageQuery.setIsFollow("true");
         return getTreadsPage(treadsPageQuery);
 
 //        Long userId = treadsPageQuery.getUserId();
@@ -458,7 +465,25 @@ public class TreadsServiceImpl extends ServiceImpl<TreadsMapper, Treads> impleme
 
     @Override
     public Result<PageDTO<TreadsVo>> getTreadByUserTag(TreadsPageQuery treadsPageQuery) {
-        return null;
+//        Long userId = BaseContext.getCurrentId();
+        Page<TreadsTag> treadsTagPage = treadsTagService.lambdaQuery().eq(TreadsTag::getTagId, treadsPageQuery.getTagId()).page(treadsPageQuery.toMpPageDefaultSortByCreateTimeDesc());
+
+        List<Long> treadsIds = treadsTagPage.getRecords().stream().map(TreadsTag::getTreadsId).toList();
+        if (treadsIds.isEmpty()) {
+            return Result.success(PageUtils.empty(treadsTagPage));
+        }
+
+        List<Treads> treads = this.lambdaQuery().orderByDesc(Treads::getCreateTime).in(Treads::getId,treadsIds).list();
+        List<TreadsVo> treadsVoList = treads.stream().map(this::getTreadsVo).toList();
+        PageDTO<TreadsVo> treadsVoPageDTO = PageUtils.of(treadsTagPage, treadsVoList);
+//        IPage<TreadsVo> treadsVoPage = this.baseMapper.getTreadsVoPage(userId, treadsPageQuery.toMpPageDefaultSortByCreateTimeDesc(), "false");
+//        treadsVoPage.getRecords().forEach(treadsVo -> {
+//            List<Tag> tagDetails = tagService.getTagDetails(treadsVo.getId());
+//            List<Image> imageList = imageService.lambdaQuery().eq(Image::getTreadsId, treadsVo.getId()).list();
+//            treadsVo.setTagList(tagDetails).setImageList(imageList);
+//        });
+//        PageDTO<TreadsVo> tPageDTO = new PageDTO<>(treadsVoPage.getTotal(), treadsVoPage.getPages(), treadsVoPage.getRecords());
+        return Result.success(treadsVoPageDTO);
     }
 
     /**

@@ -13,4 +13,6 @@ public interface TagService extends IService<Tag> {
     Result<Tag> saveTag(Tag tag);
 
     Result<String> deleteTag(Long id);
+
+    List<Tag> getTagDetails(Long treadId);
 }

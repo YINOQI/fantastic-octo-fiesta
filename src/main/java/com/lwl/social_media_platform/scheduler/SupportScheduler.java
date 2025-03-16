@@ -31,7 +31,7 @@ public class SupportScheduler {
     );
 
     //    @Async("supportTaskExecutor")
-    @Scheduled(cron = "0 0/5 * * * ? ")
+    @Scheduled(cron = "0 0/60 * * * ? ")
     public void updateSupport() {
         log.info("开始定时任务，当前时间为{}", new Date());
         // 定时任务具体业务逻辑

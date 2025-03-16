@@ -24,7 +24,7 @@ public interface TreadsService extends IService<Treads> {
     @Deprecated
     Result<List<TreadsVo>> getTreadsList(Long userId);
 
-    Result<PageDTO<TreadsVo>> getTreadsPage(TreadsPageQuery treadsPageQuery);
+    Result<PageDTO<TreadsVo>> getTreadsPage(TreadsPageQuery treadsPageQuery) throws IOException;
 
     Result<String> updateTread(TreadsDTO treadsDTO);
 
@@ -34,7 +34,7 @@ public interface TreadsService extends IService<Treads> {
 
     List<TreadsVo> getCurrentHotTreads();
 
-    Result<PageDTO<TreadsVo>> getConcentrationTreads(TreadsPageQuery treadsPageQuery);
+    Result<PageDTO<TreadsVo>> getConcentrationTreads(TreadsPageQuery treadsPageQuery) throws IOException;
 
     Result<PageDTO<TreadsVo>> getTreadByUserTag(TreadsPageQuery treadsPageQuery);
 }

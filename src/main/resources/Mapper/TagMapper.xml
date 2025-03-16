@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.lwl.social_media_platform.mapper.TagMapper">
+
+
+    <select id="getTagDetails" resultType="com.lwl.social_media_platform.domain.pojo.Tag">
+        select tag.*
+        from tag left join treads_tag as tt
+        on tag.id = tt.tag_id
+        where tt.treads_id = #{treadId}
+    </select>
+</mapper>

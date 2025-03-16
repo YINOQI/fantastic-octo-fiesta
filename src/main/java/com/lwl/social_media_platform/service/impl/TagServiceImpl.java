@@ -27,4 +27,9 @@ public class TagServiceImpl extends ServiceImpl<TagMapper, Tag> implements TagSe
         this.removeById(id);
         return Result.success("删除标签成功");
     }
+
+    @Override
+    public List<Tag> getTagDetails(Long treadId) {
+        return this.baseMapper.getTagDetails(treadId);
+    }
 }

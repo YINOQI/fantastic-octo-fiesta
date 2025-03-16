@@ -2,7 +2,6 @@ package com.lwl.social_media_platform.config;
 
 import com.lwl.social_media_platform.common.JacksonObjectMapper;
 import com.lwl.social_media_platform.interceptor.JwtTokenInterceptor;
-import com.lwl.social_media_platform.interceptor.WebSocketAuthInterceptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.converter.HttpMessageConverter;
@@ -19,13 +18,7 @@ public class WebMvcConfig extends WebMvcConfigurationSupport {
     protected void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(jwtTokenInterceptor)
                 .addPathPatterns("/**")
-                .excludePathPatterns("/user/login",
-                        "/user/register",
-                        "/user/getUserById",
-                        "/tread/get",
-                        "/tread/getByUser",
-                        "/tread/page",
-                        "/tread/current-hot-treads");
+                .excludePathPatterns("/user/login", "/user/register");
     }
     @Override
     protected void extendMessageConverters(List<HttpMessageConverter<?>> converters) {

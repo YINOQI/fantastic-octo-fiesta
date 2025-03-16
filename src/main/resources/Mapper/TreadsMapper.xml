@@ -13,39 +13,60 @@
         <result property="isSupport" column="is_support"/>
 
         <!-- 嵌套集合 -->
-        <collection property="tagList" ofType="com.lwl.social_media_platform.domain.pojo.Tag">
-            <result property="id" column="tag_id"/>
+        <collection property="tagList" ofType="com.lwl.social_media_platform.domain.pojo.Tag" column="tag_list">
+            <id property="id" column="tag_id"/>
             <result property="name" column="tag_name"/>
         </collection>
-        <collection property="imageList" ofType="com.lwl.social_media_platform.domain.pojo.Image">
-            <result property="id" column="image_id"/>
+        <collection property="imageList" ofType="com.lwl.social_media_platform.domain.pojo.Image" column="image_list">
+            <id property="id" column="image_id"/>
             <result property="url" column="image_url"/>
         </collection>
     </resultMap>
 
 
-    <select id="getTreadsVoPage" resultType="com.lwl.social_media_platform.domain.vo.TreadsVo" >
+<!--    <select id="getTreadsVoPage" resultType="com.lwl.social_media_platform.domain.vo.TreadsVo">-->
+<!--        SELECT-->
+<!--        t.*,-->
+<!--        GROUP_CONCAT(DISTINCT tg.id, ':', tg.name) AS tag_list,-->
+<!--        GROUP_CONCAT(DISTINCT im.id, ':', im.url) AS image_list,-->
+
+<!--        u.pic AS pic,-->
+<!--        u.nickname AS nickname,-->
+<!--        CASE WHEN f.id IS NOT NULL THEN 0 ELSE 1 END AS is_follow,-->
+<!--        CASE WHEN s.id IS NOT NULL THEN 1 ELSE 0 END AS is_support-->
+<!--        FROM-->
+<!--        treads t-->
+<!--        LEFT JOIN treads_tag tt ON t.id = tt.treads_id-->
+<!--        LEFT JOIN tag tg ON tt.tag_id = tg.id-->
+<!--        LEFT JOIN image im ON t.id = im.treads_id-->
+<!--        LEFT JOIN user u ON t.user_id = u.id-->
+<!--        LEFT JOIN concentration f ON f.user_id = #{userId} AND f.to_user_id = t.user_id-->
+<!--        LEFT JOIN support s ON s.user_id = #{userId} AND s.treads_id = t.id-->
+<!--&#45;&#45;         where t.user_id = #{followId}-->
+<!--        GROUP BY t.id-->
+<!--    </select>-->
+    <select id="getTreadsVoPage" resultType="com.lwl.social_media_platform.domain.vo.TreadsVo">
         SELECT
-            t.*,
-            GROUP_CONCAT(DISTINCT tg.id, ':', tg.name) AS tag_list,
-            GROUP_CONCAT(DISTINCT im.id, ':', im.url) AS image_list,
-            u.pic AS pic,
-            u.nickname AS nickname,
-            CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END AS is_follow,
-            CASE WHEN s.id IS NOT NULL THEN 1 ELSE 0 END AS is_support
+        t.*,
+        u.pic AS pic,
+        u.nickname AS nickname,
+        CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END AS is_follow,
+        CASE WHEN s.id IS NOT NULL THEN 1 ELSE 0 END AS is_support
         FROM
-            treads t
-                LEFT JOIN treads_tag tt ON t.id = tt.treads_id
-                LEFT JOIN tag tg ON tt.tag_id = tg.id
-                LEFT JOIN image im ON t.id = im.treads_id
-                LEFT JOIN user u ON t.user_id = u.id
-                LEFT JOIN concentration f ON f.user_id = #{userId} AND f.to_user_id = t.user_id
-                LEFT JOIN support s ON s.user_id = #{userId} AND s.treads_id = t.id
+        treads t
+        LEFT JOIN treads_tag tt ON t.id = tt.treads_id
+        LEFT JOIN tag tg ON tt.tag_id = tg.id
+        LEFT JOIN image im ON t.id = im.treads_id
+        LEFT JOIN user u ON t.user_id = u.id
+        LEFT JOIN concentration f ON f.user_id = #{userId} AND f.to_user_id = t.user_id
+        LEFT JOIN support s ON s.user_id = #{userId} AND s.treads_id = t.id
+--         where t.user_id = f.to_user_id
         <where>
-            <if test="followId != null">
-                AND f.user_id = #{followId}
+            <if test="followId eq 'true' ">
+                AND t.user_id = f.to_user_id
             </if>
         </where>
         GROUP BY t.id
     </select>
+
 </mapper>

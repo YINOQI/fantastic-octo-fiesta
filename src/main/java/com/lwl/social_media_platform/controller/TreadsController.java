@@ -59,7 +59,7 @@ public class TreadsController {
      * @return TreadsVo 分页
      */
     @GetMapping("/page")
-    public Result<PageDTO<TreadsVo>> getTreadsPage(TreadsPageQuery treadsPageQuery){
+    public Result<PageDTO<TreadsVo>> getTreadsPage(TreadsPageQuery treadsPageQuery) throws IOException {
         return treadsService.getTreadsPage(treadsPageQuery);
     }
 
@@ -85,7 +85,7 @@ public class TreadsController {
     }
 
     @GetMapping("/get-concentration-list")
-    public Result<PageDTO<TreadsVo>> getConcentrationTreads(TreadsPageQuery treadsPageQuery){
+    public Result<PageDTO<TreadsVo>> getConcentrationTreads(TreadsPageQuery treadsPageQuery) throws IOException {
         Long userId = BaseContext.getCurrentId();
         treadsPageQuery.setUserId(userId);
         return treadsService.getConcentrationTreads(treadsPageQuery);
